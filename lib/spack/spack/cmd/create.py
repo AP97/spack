@@ -1,71 +1,41 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from __future__ import print_function
 
 import os
 import re
 
 import llnl.util.tty as tty
-import spack
-import spack.cmd
-import spack.cmd.checksum
-import spack.url
-import spack.util.web
 from llnl.util.filesystem import mkdirp
-from spack.repository import Repo
+
+import spack.cmd
+import spack.util.web
+import spack.repo
 from spack.spec import Spec
-from spack.util.executable import which
-from spack.util.naming import *
+from spack.util.editor import editor
+from spack.util.executable import which, ProcessError
+from spack.util.naming import mod_to_class
+from spack.util.naming import simplify_name, valid_fully_qualified_module_name
+from spack.url import UndetectableNameError, UndetectableVersionError
+from spack.url import parse_name, parse_version
 
 description = "create a new package file"
+section = "packaging"
+level = "short"
+
 
 package_template = '''\
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
+# ----------------------------------------------------------------------------
+# If you submit this package back to Spack as a pull request,
+# please first remove this boilerplate and all FIXME comments.
 #
 # This is a template package file for Spack.  We've put "FIXME"
 # next to all the things you'll want to change. Once you've handled
@@ -78,9 +48,8 @@ package_template = '''\
 #     spack edit {name}
 #
 # See the Spack documentation for more information on packaging.
-# If you submit this package back to Spack as a pull request,
-# please first remove this boilerplate and all FIXME comments.
-#
+# ----------------------------------------------------------------------------
+
 from spack import *
 
 
@@ -141,10 +110,6 @@ class AutotoolsPackageTemplate(PackageTemplate):
 
     base_class_name = 'AutotoolsPackage'
 
-    dependencies = """\
-    # FIXME: Add dependencies if required.
-    # depends_on('foo')"""
-
     body = """\
     def configure_args(self):
         # FIXME: Add arguments other than --prefix
@@ -194,18 +159,51 @@ class CMakePackageTemplate(PackageTemplate):
         return args"""
 
 
+class MesonPackageTemplate(PackageTemplate):
+    """Provides appropriate overrides for meson-based packages"""
+
+    base_class_name = 'MesonPackage'
+
+    body = """\
+    def meson_args(self):
+        # FIXME: If not needed delete this function
+        args = []
+        return args"""
+
+
+class QMakePackageTemplate(PackageTemplate):
+    """Provides appropriate overrides for QMake-based packages"""
+
+    base_class_name = 'QMakePackage'
+
+    body = """\
+    def qmake_args(self):
+        # FIXME: If not needed delete this function
+        args = []
+        return args"""
+
+
 class SconsPackageTemplate(PackageTemplate):
     """Provides appropriate overrides for SCons-based packages"""
 
-    dependencies = """\
-    # FIXME: Add additional dependencies if required.
-    depends_on('scons', type='build')"""
+    base_class_name = 'SConsPackage'
 
     body = """\
-    def install(self, spec, prefix):
-        # FIXME: Add logic to build and install here.
-        scons('prefix={0}'.format(prefix))
-        scons('install')"""
+    def build_args(self, spec, prefix):
+        # FIXME: Add arguments to pass to build.
+        # FIXME: If not needed delete this function
+        args = []
+        return args"""
+
+
+class WafPackageTemplate(PackageTemplate):
+    """Provides appropriate override for Waf-based packages"""
+
+    base_class_name = 'WafPackage'
+
+    body = """\
+    # FIXME: Override configure_args(), build_args(),
+    # or install_args() if necessary."""
 
 
 class BazelPackageTemplate(PackageTemplate):
@@ -233,7 +231,7 @@ class PythonPackageTemplate(PackageTemplate):
     body = """\
     def build_args(self, spec, prefix):
         # FIXME: Add arguments other than --prefix
-        # FIXME: If not needed delete the function
+        # FIXME: If not needed delete this function
         args = []
         return args"""
 
@@ -256,7 +254,11 @@ class RPackageTemplate(PackageTemplate):
     # depends_on('r-foo', type=('build', 'run'))"""
 
     body = """\
-    # FIXME: Override install() if necessary."""
+    def configure_args(self, spec, prefix):
+        # FIXME: Add arguments to pass to install via --configure-args
+        # FIXME: If not needed delete this function
+        args = []
+        return args"""
 
     def __init__(self, name, *args):
         # If the user provided `--name r-rcpp`, don't rename it r-r-rcpp
@@ -268,23 +270,52 @@ class RPackageTemplate(PackageTemplate):
         super(RPackageTemplate, self).__init__(name, *args)
 
 
+class PerlmakePackageTemplate(PackageTemplate):
+    """Provides appropriate overrides for Perl extensions
+    that come with a Makefile.PL"""
+    base_class_name = 'PerlPackage'
+
+    dependencies = """\
+    # FIXME: Add dependencies if required:
+    # depends_on('perl-foo', type=('build', 'run'))"""
+
+    body = """\
+    def configure_args(self):
+        # FIXME: Add non-standard arguments
+        # FIXME: If not needed delete this function
+        args = []
+        return args"""
+
+    def __init__(self, name, *args):
+        # If the user provided `--name perl-cpp`, don't rename it perl-perl-cpp
+        if not name.startswith('perl-'):
+            # Make it more obvious that we are renaming the package
+            tty.msg("Changing package name from {0} to perl-{0}".format(name))
+            name = 'perl-{0}'.format(name)
+
+        super(PerlmakePackageTemplate, self).__init__(name, *args)
+
+
+class PerlbuildPackageTemplate(PerlmakePackageTemplate):
+    """Provides appropriate overrides for Perl extensions
+    that come with a Build.PL instead of a Makefile.PL"""
+    dependencies = """\
+    depends_on('perl-module-build', type='build')
+
+    # FIXME: Add additional dependencies if required:
+    # depends_on('perl-foo', type=('build', 'run'))"""
+
+
 class OctavePackageTemplate(PackageTemplate):
     """Provides appropriate overrides for octave packages"""
+
+    base_class_name = 'OctavePackage'
 
     dependencies = """\
     extends('octave')
 
     # FIXME: Add additional dependencies if required.
     # depends_on('octave-foo', type=('build', 'run'))"""
-
-    body = """\
-    def install(self, spec, prefix):
-        # FIXME: Add logic to build and install here.
-        octave('--quiet', '--norc',
-               '--built-in-docstrings-file=/dev/null',
-               '--texi-macros-file=/dev/null',
-               '--eval', 'pkg prefix {0}; pkg install {1}'.format(
-                   prefix, self.stage.archive_file))"""
 
     def __init__(self, name, *args):
         # If the user provided `--name octave-splines`, don't rename it
@@ -297,16 +328,45 @@ class OctavePackageTemplate(PackageTemplate):
         super(OctavePackageTemplate, self).__init__(name, *args)
 
 
+class MakefilePackageTemplate(PackageTemplate):
+    """Provides appropriate overrides for Makefile packages"""
+
+    base_class_name = 'MakefilePackage'
+
+    body = """\
+    def edit(self, spec, prefix):
+        # FIXME: Edit the Makefile if necessary
+        # FIXME: If not needed delete this function
+        # makefile = FileFilter('Makefile')
+        # makefile.filter('CC = .*', 'CC = cc')"""
+
+
+class IntelPackageTemplate(PackageTemplate):
+    """Provides appropriate overrides for licensed Intel software"""
+
+    base_class_name = 'IntelPackage'
+
+    body = """\
+    # FIXME: Override `setup_environment` if necessary."""
+
+
 templates = {
     'autotools':  AutotoolsPackageTemplate,
     'autoreconf': AutoreconfPackageTemplate,
     'cmake':      CMakePackageTemplate,
+    'qmake':      QMakePackageTemplate,
     'scons':      SconsPackageTemplate,
+    'waf':        WafPackageTemplate,
     'bazel':      BazelPackageTemplate,
     'python':     PythonPackageTemplate,
     'r':          RPackageTemplate,
+    'perlmake':   PerlmakePackageTemplate,
+    'perlbuild':  PerlbuildPackageTemplate,
     'octave':     OctavePackageTemplate,
-    'generic':    PackageTemplate
+    'makefile':   MakefilePackageTemplate,
+    'intel':      IntelPackageTemplate,
+    'meson':      MesonPackageTemplate,
+    'generic':    PackageTemplate,
 }
 
 
@@ -333,6 +393,9 @@ def setup_parser(subparser):
     subparser.add_argument(
         '-f', '--force', action='store_true',
         help="overwrite any existing package file with the same name")
+    subparser.add_argument(
+        '--skip-editor', action='store_true',
+        help="skip the edit session for the package (e.g., automation)")
 
 
 class BuildSystemGuesser:
@@ -340,6 +403,10 @@ class BuildSystemGuesser:
     during ``spack create``. By passing this object to ``spack checksum``, we
     can take a peek at the fetched tarball and discern the build system it uses
     """
+
+    def __init__(self):
+        """Sets the default build system."""
+        self.build_system = 'generic'
 
     def __call__(self, stage, url):
         """Try to guess the type of build system used by a project based on
@@ -355,15 +422,24 @@ class BuildSystemGuesser:
         # A list of clues that give us an idea of the build system a package
         # uses. If the regular expression matches a file contained in the
         # archive, the corresponding build system is assumed.
+        # NOTE: Order is important here. If a package supports multiple
+        # build systems, we choose the first match in this list.
         clues = [
-            (r'/configure$',         'autotools'),
-            (r'/configure.(in|ac)$', 'autoreconf'),
-            (r'/Makefile.am$',       'autoreconf'),
-            (r'/CMakeLists.txt$',    'cmake'),
-            (r'/SConstruct$',        'scons'),
-            (r'/setup.py$',          'python'),
-            (r'/NAMESPACE$',         'r'),
-            (r'/WORKSPACE$',         'bazel')
+            (r'/CMakeLists\.txt$',    'cmake'),
+            (r'/configure$',          'autotools'),
+            (r'/configure\.(in|ac)$', 'autoreconf'),
+            (r'/Makefile\.am$',       'autoreconf'),
+            (r'/SConstruct$',         'scons'),
+            (r'/waf$',                'waf'),
+            (r'/setup\.py$',          'python'),
+            (r'/NAMESPACE$',          'r'),
+            (r'/WORKSPACE$',          'bazel'),
+            (r'/Build\.PL$',          'perlbuild'),
+            (r'/Makefile\.PL$',       'perlmake'),
+            (r'/.*\.pro$',            'qmake'),
+            (r'/(GNU)?[Mm]akefile$',  'makefile'),
+            (r'/DESCRIPTION$',        'octave'),
+            (r'/meson\.build$',       'meson'),
         ]
 
         # Peek inside the compressed file.
@@ -371,26 +447,23 @@ class BuildSystemGuesser:
             try:
                 unzip  = which('unzip')
                 output = unzip('-lq', stage.archive_file, output=str)
-            except:
+            except ProcessError:
                 output = ''
         else:
             try:
                 tar    = which('tar')
                 output = tar('--exclude=*/*/*', '-tf',
                              stage.archive_file, output=str)
-            except:
+            except ProcessError:
                 output = ''
         lines = output.split('\n')
 
         # Determine the build system based on the files contained
         # in the archive.
-        build_system = 'generic'
         for pattern, bs in clues:
             if any(re.search(pattern, l) for l in lines):
-                build_system = bs
+                self.build_system = bs
                 break
-
-        self.build_system = build_system
 
 
 def get_name(args):
@@ -399,10 +472,12 @@ def get_name(args):
     If a name was provided, always use that. Otherwise, if a URL was
     provided, extract the name from that. Otherwise, use a default.
 
-    :param argparse.Namespace args: The arguments given to ``spack create``
+    Args:
+        args (param argparse.Namespace): The arguments given to
+            ``spack create``
 
-    :returns: The name of the package
-    :rtype: str
+    Returns:
+        str: The name of the package
     """
 
     # Default package name
@@ -415,12 +490,14 @@ def get_name(args):
     elif args.url:
         # Try to guess the package name based on the URL
         try:
-            name = spack.url.parse_name(args.url)
+            name = parse_name(args.url)
             tty.msg("This looks like a URL for {0}".format(name))
-        except spack.url.UndetectableNameError:
+        except UndetectableNameError:
             tty.die("Couldn't guess a name for this package.",
                     "  Please report this bug. In the meantime, try running:",
                     "  `spack create --name <name> <url>`")
+
+    name = simplify_name(name)
 
     if not valid_fully_qualified_module_name(name):
         tty.die("Package name can only contain a-z, 0-9, and '-'")
@@ -433,10 +510,11 @@ def get_url(args):
 
     Use a default URL if none is provided.
 
-    :param argparse.Namespace args: The arguments given to ``spack create``
+    Args:
+        args (argparse.Namespace): The arguments given to ``spack create``
 
-    :returns: The URL of the package
-    :rtype: str
+    Returns:
+        str: The URL of the package
     """
 
     # Default URL
@@ -456,11 +534,13 @@ def get_versions(args, name):
 
     Returns default values if no URL is provided.
 
-    :param argparse.Namespace args: The arguments given to ``spack create``
-    :param str name: The name of the package
+    Args:
+        args (argparse.Namespace): The arguments given to ``spack create``
+        name (str): The name of the package
 
-    :returns: Versions and hashes, and a BuildSystemGuesser object
-    :rtype: str and BuildSystemGuesser
+    Returns:
+        str and BuildSystemGuesser: Versions and hashes, and a
+            BuildSystemGuesser object
     """
 
     # Default version, hash, and guesser
@@ -472,14 +552,19 @@ def get_versions(args, name):
 
     if args.url:
         # Find available versions
-        url_dict = spack.util.web.find_versions_of_archive(args.url)
+        try:
+            url_dict = spack.util.web.find_versions_of_archive(args.url)
+        except UndetectableVersionError:
+            # Use fake versions
+            tty.warn("Couldn't detect version in: {0}".format(args.url))
+            return versions, guesser
 
         if not url_dict:
             # If no versions were found, revert to what the user provided
-            version = spack.url.parse_version(args.url)
+            version = parse_version(args.url)
             url_dict = {version: args.url}
 
-        versions = spack.cmd.checksum.get_checksums(
+        versions = spack.util.web.get_checksums_for_versions(
             url_dict, name, first_stage_function=guesser,
             keep_stage=args.keep_stage)
 
@@ -493,12 +578,13 @@ def get_build_system(args, guesser):
     is provided, download the tarball and peek inside to guess what
     build system it uses. Otherwise, use a generic template by default.
 
-    :param argparse.Namespace args: The arguments given to ``spack create``
-    :param BuildSystemGuesser guesser: The first_stage_function given to \
-        ``spack checksum`` which records the build system it detects
+    Args:
+        args (argparse.Namespace): The arguments given to ``spack create``
+        guesser (BuildSystemGuesser): The first_stage_function given to
+            ``spack checksum`` which records the build system it detects
 
-    :returns: The name of the build system template to use
-    :rtype: str
+    Returns:
+        str: The name of the build system template to use
     """
 
     # Default template
@@ -525,11 +611,12 @@ def get_repository(args, name):
     """Returns a Repo object that will allow us to determine the path where
     the new package file should be created.
 
-    :param argparse.Namespace args: The arguments given to ``spack create``
-    :param str name: The name of the package to create
+    Args:
+        args (argparse.Namespace): The arguments given to ``spack create``
+        name (str): The name of the package to create
 
-    :returns: A Repo object capable of determining the path to the package file
-    :rtype: Repo
+    Returns:
+        Repo: A Repo object capable of determining the path to the package file
     """
     spec = Spec(name)
     # Figure out namespace for spec
@@ -543,17 +630,17 @@ def get_repository(args, name):
     # Figure out where the new package should live
     repo_path = args.repo
     if repo_path is not None:
-        repo = Repo(repo_path)
+        repo = spack.repo.Repo(repo_path)
         if spec.namespace and spec.namespace != repo.namespace:
             tty.die("Can't create package with namespace {0} in repo with "
-                    "namespace {0}".format(spec.namespace, repo.namespace))
+                    "namespace {1}".format(spec.namespace, repo.namespace))
     else:
         if spec.namespace:
-            repo = spack.repo.get_repo(spec.namespace, None)
+            repo = spack.repo.path.get_repo(spec.namespace, None)
             if not repo:
                 tty.die("Unknown namespace: '{0}'".format(spec.namespace))
         else:
-            repo = spack.repo.first_repo()
+            repo = spack.repo.path.first_repo()
 
     # Set the namespace on the spec if it's not there already
     if not spec.namespace:
@@ -570,8 +657,8 @@ def create(parser, args):
     build_system = get_build_system(args, guesser)
 
     # Create the package template object
-    PackageClass = templates[build_system]
-    package = PackageClass(name, url, versions)
+    package_class = templates[build_system]
+    package = package_class(name, url, versions)
     tty.msg("Created template for {0} package".format(package.name))
 
     # Create a directory for the new package
@@ -587,5 +674,6 @@ def create(parser, args):
     package.write(pkg_path)
     tty.msg("Created package file: {0}".format(pkg_path))
 
-    # Open up the new package file in your $EDITOR
-    spack.editor(pkg_path)
+    # Optionally open up the new package file in your $EDITOR
+    if not args.skip_editor:
+        editor(pkg_path)

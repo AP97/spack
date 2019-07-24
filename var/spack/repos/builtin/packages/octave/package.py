@@ -1,27 +1,8 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 import sys
 
@@ -34,13 +15,21 @@ class Octave(AutotoolsPackage):
     Matlab. It may also be used as a batch-oriented language."""
 
     homepage = "https://www.gnu.org/software/octave/"
-    url      = "https://ftp.gnu.org/gnu/octave/octave-4.0.0.tar.gz"
+    url      = "https://ftpmirror.gnu.org/octave/octave-4.0.0.tar.gz"
 
     extendable = True
 
+    version('4.4.1', '09fbd0f212f4ef21e53f1d9c41cf30ce3d7f9450fb44911601e21ed64c67ae97')
+    version('4.4.0', '72f846379fcec7e813d46adcbacd069d72c4f4d8f6003bcd92c3513aafcd6e96')
+    version('4.2.2', '77b84395d8e7728a1ab223058fe5e92dc38c03bc13f7358e6533aab36f76726e')
+    version('4.2.1', '80c28f6398576b50faca0e602defb9598d6f7308b0903724442c2a35a605333b')
     version('4.2.0', '443ba73782f3531c94bcf016f2f0362a58e186ddb8269af7dcce973562795567')
     version('4.0.2', 'c2a5cacc6e4c52f924739cdf22c2c687')
     version('4.0.0', 'a69f8320a4f20a8480c1b278b1adb799')
+
+    # patches
+    # see https://savannah.gnu.org/bugs/?50234
+    patch('patch_4.2.1_inline.diff', when='@4.2.1')
 
     # Variants
     variant('readline',   default=True)
@@ -71,13 +60,13 @@ class Octave(AutotoolsPackage):
     # Octave does not configure with sed from darwin:
     depends_on('sed', when=sys.platform == 'darwin', type='build')
     depends_on('pcre')
-    depends_on('pkg-config', type='build')
+    depends_on('pkgconfig', type='build')
 
     # Strongly recommended dependencies
     depends_on('readline',     when='+readline')
 
     # Optional dependencies
-    depends_on('arpack',       when='+arpack')
+    depends_on('arpack-ng',    when='+arpack')
     depends_on('curl',         when='+curl')
     depends_on('fftw',         when='+fftw')
     depends_on('fltk',         when='+fltk')
@@ -88,13 +77,13 @@ class Octave(AutotoolsPackage):
     depends_on('gnuplot',      when='+gnuplot')
     depends_on('image-magick',  when='+magick')
     depends_on('hdf5',         when='+hdf5')
-    depends_on('jdk',          when='+jdk') # TODO: requires Java 6 ?
+    depends_on('java',          when='+jdk')        # TODO: requires Java 6 ?
     depends_on('llvm',         when='+llvm')
     # depends_on('opengl',      when='+opengl')    # TODO: add package
     depends_on('qhull',        when='+qhull')
     depends_on('qrupdate',     when='+qrupdate')
     # depends_on('qscintilla',  when='+qscintilla) # TODO: add package
-    depends_on('qt',           when='+qt')
+    depends_on('qt+opengl',    when='+qt')
     depends_on('suite-sparse', when='+suitesparse')
     depends_on('zlib',         when='+zlib')
 
@@ -108,8 +97,8 @@ class Octave(AutotoolsPackage):
 
         # Required dependencies
         config_args.extend([
-            "--with-blas=%s" % spec['blas'].blas_libs.ld_flags,
-            "--with-lapack=%s" % spec['lapack'].lapack_libs.ld_flags
+            "--with-blas=%s" % spec['blas'].libs.ld_flags,
+            "--with-lapack=%s" % spec['lapack'].libs.ld_flags
         ])
 
         # Strongly recommended dependencies
@@ -120,9 +109,10 @@ class Octave(AutotoolsPackage):
 
         # Optional dependencies
         if '+arpack' in spec:
+            sa = spec['arpack-ng']
             config_args.extend([
-                "--with-arpack-includedir=%s" % spec['arpack'].prefix.include,
-                "--with-arpack-libdir=%s"     % spec['arpack'].prefix.lib
+                "--with-arpack-includedir=%s" % sa.prefix.include,
+                "--with-arpack-libdir=%s"     % sa.prefix.lib
             ])
         else:
             config_args.append("--without-arpack")
@@ -180,9 +170,9 @@ class Octave(AutotoolsPackage):
 
         if '+jdk' in spec:
             config_args.extend([
-                "--with-java-homedir=%s"    % spec['jdk'].prefix,
-                "--with-java-includedir=%s" % spec['jdk'].prefix.include,
-                "--with-java-libdir=%s"     % spec['jdk'].prefix.lib
+                "--with-java-homedir=%s"    % spec['java'].home,
+                "--with-java-includedir=%s" % spec['java'].home.include,
+                "--with-java-libdir=%s"     % spec['java'].libs.directories[0]
             ])
         else:
             config_args.append("--disable-java")
@@ -225,7 +215,7 @@ class Octave(AutotoolsPackage):
     # Set up environment to make install easy for Octave extensions.
     # ========================================================================
 
-    def setup_dependent_package(self, module, ext_spec):
+    def setup_dependent_package(self, module, dependent_spec):
         """Called before Octave modules' install() methods.
 
         In most cases, extensions will only need to have one line:

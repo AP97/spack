@@ -1,35 +1,23 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
-import argparse
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
+from __future__ import print_function
+
+import os
+import argparse
 import llnl.util.tty as tty
 
-import spack
+import spack.environment as ev
 import spack.cmd
+import spack.environment
+import spack.paths
+import spack.repo
 
-description = "print out locations of various directories used by Spack"
+description = "print out locations of packages and spack directories"
+section = "basic"
+level = "long"
 
 
 def setup_parser(subparser):
@@ -62,6 +50,9 @@ def setup_parser(subparser):
         '-b', '--build-dir', action='store_true',
         help="checked out or expanded source directory for a spec "
              "(requires it to be staged first)")
+    directories.add_argument(
+        '-e', '--env', action='store',
+        help="location of an environment managed by spack")
 
     subparser.add_argument(
         'spec', nargs=argparse.REMAINDER,
@@ -70,16 +61,22 @@ def setup_parser(subparser):
 
 def location(parser, args):
     if args.module_dir:
-        print spack.module_path
+        print(spack.paths.module_path)
 
     elif args.spack_root:
-        print spack.prefix
+        print(spack.paths.prefix)
+
+    elif args.env:
+        path = spack.environment.root(args.env)
+        if not os.path.isdir(path):
+            tty.die("no such environment: '%s'" % args.env)
+        print(path)
 
     elif args.packages:
-        print spack.repo.first_repo().root
+        print(spack.repo.path.first_repo().root)
 
     elif args.stages:
-        print spack.stage_path
+        print(spack.paths.stage_path)
 
     else:
         specs = spack.cmd.parse_specs(args.spec)
@@ -90,15 +87,16 @@ def location(parser, args):
 
         if args.install_dir:
             # install_dir command matches against installed specs.
-            spec = spack.cmd.disambiguate_spec(specs[0])
-            print spec.prefix
+            env = ev.get_env(args, 'location')
+            spec = spack.cmd.disambiguate_spec(specs[0], env)
+            print(spec.prefix)
 
         else:
             spec = specs[0]
 
             if args.package_dir:
                 # This one just needs the spec name.
-                print spack.repo.dirname_for_package_name(spec.name)
+                print(spack.repo.path.dirname_for_package_name(spec.name))
 
             else:
                 # These versions need concretized specs.
@@ -106,11 +104,11 @@ def location(parser, args):
                 pkg = spack.repo.get(spec)
 
                 if args.stage_dir:
-                    print pkg.stage.path
+                    print(pkg.stage.path)
 
                 else:  # args.build_dir is the default.
-                    if not pkg.stage.source_path:
+                    if not pkg.stage.expanded:
                         tty.die("Build directory does not exist yet. "
                                 "Run this to create it:",
                                 "spack stage " + " ".join(args.spec))
-                    print pkg.stage.source_path
+                    print(pkg.stage.source_path)

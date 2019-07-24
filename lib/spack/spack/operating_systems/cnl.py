@@ -1,34 +1,47 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 import re
 
+import llnl.util.tty as tty
+
+import spack.version
 from spack.architecture import OperatingSystem
-from spack.util.executable import *
-import spack.spec
-from spack.util.multiproc import parmap
-import spack.compilers
+from spack.util.module_cmd import module
+
+#: Location of the Cray CLE release file, which we look at to get the CNL
+#: OS version.
+_cle_release_file = '/etc/opt/cray/release/cle-release'
+
+
+def read_cle_release_file():
+    """Read the CLE release file and return a dict with its attributes.
+
+    The release file looks something like this::
+
+        RELEASE=6.0.UP07
+        BUILD=6.0.7424
+        ...
+
+    The dictionary we produce looks like this::
+
+        {
+          "RELEASE": "6.0.UP07",
+          "BUILD": "6.0.7424",
+          ...
+        }
+
+    """
+    with open(_cle_release_file) as release_file:
+        result = {}
+        for line in release_file:
+            # use partition instead of split() to ensure we only split on
+            # the first '=' in the line.
+            key, _, value = line.partition('=')
+            result[key] = value.strip()
+        return result
 
 
 class Cnl(OperatingSystem):
@@ -40,43 +53,68 @@ class Cnl(OperatingSystem):
     """
 
     def __init__(self):
-        name = 'CNL'
-        version = '10'
+        name = 'cnl'
+        version = self._detect_crayos_version()
         super(Cnl, self).__init__(name, version)
+        self.modulecmd = module
 
     def __str__(self):
-        return self.name
+        return self.name + str(self.version)
 
-    def find_compilers(self, *paths):
-        types = spack.compilers.all_compiler_types()
-        compiler_lists = parmap(
-            lambda cmp_cls: self.find_compiler(cmp_cls, *paths), types)
+    @classmethod
+    def _detect_crayos_version(cls):
+        release_attrs = read_cle_release_file()
+        v = spack.version.Version(release_attrs['RELEASE'])
+        return v[0]
 
-        # ensure all the version calls we made are cached in the parent
-        # process, as well.  This speeds up Spack a lot.
-        clist = reduce(lambda x, y: x + y, compiler_lists)
-        return clist
+    def arguments_to_detect_version_fn(self, paths):
+        import spack.compilers
 
-    def find_compiler(self, cmp_cls, *paths):
-        compilers = []
-        if cmp_cls.PrgEnv:
-            if not cmp_cls.PrgEnv_compiler:
+        command_arguments = []
+        for compiler_name in spack.compilers.supported_compilers():
+            cmp_cls = spack.compilers.class_for_compiler_name(compiler_name)
+
+            # If the compiler doesn't have a corresponding
+            # Programming Environment, skip to the next
+            if cmp_cls.PrgEnv is None:
+                continue
+
+            if cmp_cls.PrgEnv_compiler is None:
                 tty.die('Must supply PrgEnv_compiler with PrgEnv')
 
-            modulecmd = which('modulecmd')
-            modulecmd.add_default_arg('python')
+            compiler_id = spack.compilers.CompilerID(self, compiler_name, None)
+            detect_version_args = spack.compilers.DetectVersionArgs(
+                id=compiler_id, variation=(None, None),
+                language='cc', path='cc'
+            )
+            command_arguments.append(detect_version_args)
+        return command_arguments
 
-            output = modulecmd(
-                'avail', cmp_cls.PrgEnv_compiler, output=str, error=str)
-            version_regex = r'(%s)/([\d\.]+[\d])' % cmp_cls.PrgEnv_compiler
-            matches = re.findall(version_regex, output)
-            for name, version in matches:
-                v = version
-                comp = cmp_cls(
-                    spack.spec.CompilerSpec(name + '@' + v),
-                    self, "any",
-                    ['cc', 'CC', 'ftn'], [cmp_cls.PrgEnv, name + '/' + v])
+    def detect_version(self, detect_version_args):
+        import spack.compilers
+        modulecmd = self.modulecmd
+        compiler_name = detect_version_args.id.compiler_name
+        compiler_cls = spack.compilers.class_for_compiler_name(compiler_name)
+        output = modulecmd('avail', compiler_cls.PrgEnv_compiler)
+        version_regex = r'(%s)/([\d\.]+[\d])' % compiler_cls.PrgEnv_compiler
+        matches = re.findall(version_regex, output)
+        version = tuple(version for _, version in matches)
+        compiler_id = detect_version_args.id
+        value = detect_version_args._replace(
+            id=compiler_id._replace(version=version)
+        )
+        return value, None
 
-                compilers.append(comp)
+    def make_compilers(self, compiler_id, paths):
+        import spack.spec
+        name = compiler_id.compiler_name
+        cmp_cls = spack.compilers.class_for_compiler_name(name)
+        compilers = []
+        for v in compiler_id.version:
+            comp = cmp_cls(
+                spack.spec.CompilerSpec(name + '@' + v),
+                self, "any",
+                ['cc', 'CC', 'ftn'], [cmp_cls.PrgEnv, name + '/' + v])
 
+            compilers.append(comp)
         return compilers

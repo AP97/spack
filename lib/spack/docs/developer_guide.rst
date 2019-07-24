@@ -1,3 +1,8 @@
+.. Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+   Spack Project Developers. See the top-level COPYRIGHT file for details.
+
+   SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 .. _developer_guide:
 
 ===============
@@ -119,7 +124,7 @@ etc.) but we wanted to make Spack *very* easy to use.  The simple layout
 spares users from the need to install Spack into a Python environment.
 Many users don't have write access to a Python installation, and installing
 an entire new instance of Python to bootstrap Spack would be very complicated.
-Users should not have to install install a big, complicated package to
+Users should not have to install a big, complicated package to
 use the thing that's supposed to spare them from the details of big,
 complicated packages.  The end result is that Spack works out of the
 box: clone it and add ``bin`` to your PATH and you're ready to go.
@@ -314,7 +319,7 @@ See the `Argparse documentation <https://docs.python.org/2.7/library/argparse.ht
 for more details on how to add arguments.
 
 Some commands have a set of subcommands, like ``spack compiler find`` or
-``spack module refresh``. You can add subparsers to your parser to handle
+``spack module lmod refresh``. You can add subparsers to your parser to handle
 this. Check out ``spack edit --command compiler`` for an example of this.
 
 A lot of commands take the same arguments and flags. These arguments should
@@ -335,6 +340,10 @@ can be added to an existing command. Also remember to add unit tests for
 your command. If it isn't used very frequently, changes to the rest of
 Spack can cause your command to break without sufficient unit tests to
 prevent this from happening.
+
+Whenever you add/remove/rename a command or flags for an existing command,
+make sure to update Spack's `Bash tab completion script
+<https://github.com/adamjstewart/spack/blob/develop/share/spack/spack-completion.bash>`_.
 
 ----------
 Unit tests
@@ -447,16 +456,16 @@ the string that it detected to be the name and version. The
 ``--incorrect-name`` and ``--incorrect-version`` flags can be used to
 print URLs that were not being parsed correctly.
 
-""""""""""""""""""
-``spack url test``
-""""""""""""""""""
+"""""""""""""""""""""
+``spack url summary``
+"""""""""""""""""""""
 
 This command attempts to parse every URL for every package in Spack
 and prints a summary of how many of them are being correctly parsed.
 It also prints a histogram showing which regular expressions are being
 matched and how frequently:
 
-.. command-output:: spack url test
+.. command-output:: spack url summary
 
 This command is essential for anyone adding or changing the regular
 expressions that parse names and versions. By running this command
@@ -479,7 +488,7 @@ supply ``--profile`` to Spack on the command line, before any subcommands.
 
 ``spack --profile`` output looks like this:
 
-.. command-output:: spack --profile graph dyninst
+.. command-output:: spack --profile graph hdf5
    :ellipsis: 25
 
 The bottom of the output shows the top most time consuming functions,
